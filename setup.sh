@@ -7,29 +7,27 @@ Usage:
   ./setup.sh --base-url URL --api-key KEY --model MODEL [options]
 
 Required:
-  --base-url URL        OpenAI-compatible base URL, e.g. https://ollama.com
+  --base-url URL        OpenAI-compatible base URL, e.g. https://ollama.com/v1
   --api-key KEY         Provider API key
   --model MODEL         Chat model, e.g. deepseek-v4-flash
 
 Options:
   --domain DOMAIN       Configure Caddy for DOMAIN
+  --secret SECRET       AgentMemory bearer secret. Default: auto-generate with --domain
   --install-dir DIR     Default: /opt/agentmemory
-  --data-dir DIR        AgentMemory home/data path. Default: INSTALL_DIR/agentmemory-home
+  --data-dir DIR        AgentMemory home path. Default: INSTALL_DIR/agentmemory-home
   --iii-data-dir DIR    Rust iii-engine state path. Default: INSTALL_DIR/iii-data
   --project-name NAME   Default: agentmemory
-  --image IMAGE         Default: local/agentmemory-worker:0.9.27
+  --image IMAGE         Default: local/agentmemory:0.9.27
   --agentmemory-version VERSION  Default: 0.9.27
   --iii-version VERSION          Default: 0.11.2
   --embedding-provider NAME      Default: local
-  --worker-memory LIMIT          Default: 2g
-  --engine-memory LIMIT          Default: 512m
-  --worker-cpus N                Default: 2
-  --engine-cpus N                Default: 1
+  --memory LIMIT                 Default: 3g
+  --cpus N                       Default: 2.5
   --rest-port PORT               Default: 3111
   --stream-port PORT             Default: 3112
   --viewer-port PORT             Default: 3113
-  --engine-port PORT             Default: 49134
-  --metrics-port PORT            Default: 9464
+  --viewer-proxy-port PORT       Default: viewer-port + 10000
   --no-caddy                     Skip Caddy config
   --no-start                     Write files only
 EOF
@@ -39,23 +37,21 @@ BASE_URL=""
 API_KEY=""
 MODEL=""
 DOMAIN=""
+AGENTMEMORY_SECRET=""
 INSTALL_DIR="/opt/agentmemory"
 DATA_DIR=""
 III_DATA_DIR=""
 PROJECT_NAME="agentmemory"
 AGENTMEMORY_VERSION="0.9.27"
 III_VERSION="0.11.2"
-IMAGE="local/agentmemory-worker:0.9.27"
+IMAGE="local/agentmemory:0.9.27"
 EMBEDDING_PROVIDER="local"
-WORKER_MEMORY="2g"
-ENGINE_MEMORY="512m"
-WORKER_CPUS="2"
-ENGINE_CPUS="1"
+MEMORY="3g"
+CPUS="2.5"
 REST_PORT="3111"
 STREAM_PORT="3112"
 VIEWER_PORT="3113"
-ENGINE_PORT="49134"
-METRICS_PORT="9464"
+VIEWER_PROXY_PORT=""
 CONFIGURE_CADDY="auto"
 START_STACK="1"
 
@@ -65,23 +61,21 @@ while [ "$#" -gt 0 ]; do
     --api-key) API_KEY="${2:?}"; shift 2 ;;
     --model) MODEL="${2:?}"; shift 2 ;;
     --domain) DOMAIN="${2:?}"; shift 2 ;;
+    --secret) AGENTMEMORY_SECRET="${2:?}"; shift 2 ;;
     --install-dir) INSTALL_DIR="${2:?}"; shift 2 ;;
     --data-dir) DATA_DIR="${2:?}"; shift 2 ;;
     --iii-data-dir) III_DATA_DIR="${2:?}"; shift 2 ;;
     --project-name) PROJECT_NAME="${2:?}"; shift 2 ;;
     --image) IMAGE="${2:?}"; shift 2 ;;
-    --agentmemory-version) AGENTMEMORY_VERSION="${2:?}"; IMAGE="local/agentmemory-worker:${2:?}"; shift 2 ;;
+    --agentmemory-version) AGENTMEMORY_VERSION="${2:?}"; IMAGE="local/agentmemory:${2:?}"; shift 2 ;;
     --iii-version) III_VERSION="${2:?}"; shift 2 ;;
     --embedding-provider) EMBEDDING_PROVIDER="${2:?}"; shift 2 ;;
-    --worker-memory) WORKER_MEMORY="${2:?}"; shift 2 ;;
-    --engine-memory) ENGINE_MEMORY="${2:?}"; shift 2 ;;
-    --worker-cpus) WORKER_CPUS="${2:?}"; shift 2 ;;
-    --engine-cpus) ENGINE_CPUS="${2:?}"; shift 2 ;;
+    --memory) MEMORY="${2:?}"; shift 2 ;;
+    --cpus) CPUS="${2:?}"; shift 2 ;;
     --rest-port) REST_PORT="${2:?}"; shift 2 ;;
     --stream-port) STREAM_PORT="${2:?}"; shift 2 ;;
     --viewer-port) VIEWER_PORT="${2:?}"; shift 2 ;;
-    --engine-port) ENGINE_PORT="${2:?}"; shift 2 ;;
-    --metrics-port) METRICS_PORT="${2:?}"; shift 2 ;;
+    --viewer-proxy-port) VIEWER_PROXY_PORT="${2:?}"; shift 2 ;;
     --no-caddy) CONFIGURE_CADDY="0"; shift ;;
     --no-start) START_STACK="0"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -96,13 +90,19 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${DATA_DIR:-$INSTALL_DIR/agentmemory-home}"
 III_DATA_DIR="${III_DATA_DIR:-$INSTALL_DIR/iii-data}"
+VIEWER_PROXY_PORT="${VIEWER_PROXY_PORT:-$((VIEWER_PORT + 10000))}"
+RUN_UID="$(id -u)"
+RUN_GID="$(id -g)"
+if [ -z "$AGENTMEMORY_SECRET" ] && [ -n "$DOMAIN" ]; then
+  AGENTMEMORY_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
+fi
 
 mkdir_owned() {
   if mkdir -p "$1" 2>/dev/null; then
     return
   fi
   sudo mkdir -p "$1"
-  sudo chown -R "$(id -u):$(id -g)" "$1"
+  sudo chown -R "$RUN_UID:$RUN_GID" "$1"
 }
 
 json_escape() {
@@ -120,10 +120,12 @@ cat > "$INSTALL_DIR/.env" <<EOF
 AGENTMEMORY_VERSION=$AGENTMEMORY_VERSION
 AGENTMEMORY_III_VERSION=$III_VERSION
 OPENAI_API_KEY=$API_KEY
+AGENTMEMORY_SECRET=$AGENTMEMORY_SECRET
 EOF
 
 cat > "$DATA_DIR/.agentmemory/.env" <<EOF
 OPENAI_API_KEY=$API_KEY
+AGENTMEMORY_SECRET=$AGENTMEMORY_SECRET
 OPENAI_BASE_URL=$BASE_URL
 OPENAI_MODEL=$MODEL
 OPENAI_REASONING_EFFORT=none
@@ -132,7 +134,7 @@ AGENTMEMORY_AUTO_COMPRESS=true
 AGENTMEMORY_SUPPRESS_COST_WARNING=1
 AGENTMEMORY_URL=http://127.0.0.1:$REST_PORT
 AGENTMEMORY_VIEWER_URL=${DOMAIN:+https://$DOMAIN}
-III_ENGINE_URL=ws://127.0.0.1:$ENGINE_PORT
+III_ENGINE_URL=ws://127.0.0.1:49134
 III_REST_PORT=$REST_PORT
 III_STREAMS_PORT=$STREAM_PORT
 III_VIEWER_PORT=$VIEWER_PORT
@@ -168,7 +170,7 @@ workers:
         name: kv
         config:
           store_method: file_based
-          file_path: /data/state_store.db
+          file_path: /data/iii/state_store.db
   - name: iii-queue
     config:
       adapter:
@@ -189,7 +191,7 @@ workers:
         name: kv
         config:
           store_method: file_based
-          file_path: /data/stream_store
+          file_path: /data/iii/stream_store
   - name: iii-observability
     config:
       enabled: true
@@ -211,74 +213,49 @@ cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
 name: $PROJECT_NAME
 
 services:
-  iii-init:
-    image: busybox:1.36
-    user: "0:0"
-    volumes:
-      - "$III_DATA_DIR:/data"
-    entrypoint: ["sh", "-c", "chown -R 65532:65532 /data && chmod 755 /data"]
-    restart: "no"
-
-  iii-engine:
-    image: iiidev/iii:$III_VERSION
-    user: "65532:65532"
-    depends_on:
-      iii-init:
-        condition: service_completed_successfully
-    ports:
-      - "127.0.0.1:$ENGINE_PORT:49134"
-      - "127.0.0.1:$REST_PORT:$REST_PORT"
-      - "127.0.0.1:$STREAM_PORT:$STREAM_PORT"
-      - "127.0.0.1:$METRICS_PORT:9464"
-    volumes:
-      - "$III_DATA_DIR:/data"
-      - ./iii-config.docker.yaml:/app/config.yaml:ro
-    restart: unless-stopped
-    mem_limit: $ENGINE_MEMORY
-    cpus: "$ENGINE_CPUS"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  agentmemory-worker:
+  agentmemory:
     build:
       context: .
       args:
         AGENTMEMORY_VERSION: $AGENTMEMORY_VERSION
+        III_VERSION: $III_VERSION
     image: $IMAGE
-    network_mode: host
-    depends_on:
-      iii-engine:
-        condition: service_started
+    user: "$RUN_UID:$RUN_GID"
+    ports:
+      - "127.0.0.1:$REST_PORT:$REST_PORT"
+      - "127.0.0.1:$STREAM_PORT:$STREAM_PORT"
+      - "127.0.0.1:$VIEWER_PORT:$VIEWER_PROXY_PORT"
     env_file:
       - ./.env
     environment:
-      HOME: /data
-      AGENTMEMORY_URL: http://127.0.0.1:$REST_PORT
-      AGENTMEMORY_VIEWER_URL: ${DOMAIN:+https://$DOMAIN}
-      III_ENGINE_URL: ws://127.0.0.1:$ENGINE_PORT
+      HOME: /data/home
+      III_CONFIG_PATH: /app/config.yaml
+      III_ENGINE_URL: ws://127.0.0.1:49134
       III_REST_PORT: "$REST_PORT"
       III_STREAMS_PORT: "$STREAM_PORT"
       III_VIEWER_PORT: "$VIEWER_PORT"
+      VIEWER_PROXY_PORT: "$VIEWER_PROXY_PORT"
+      AGENTMEMORY_URL: http://127.0.0.1:$REST_PORT
+      AGENTMEMORY_VIEWER_URL: ${DOMAIN:+https://$DOMAIN}
       EMBEDDING_PROVIDER: $EMBEDDING_PROVIDER
       OPENAI_BASE_URL: $BASE_URL
       OPENAI_MODEL: $MODEL
       OPENAI_REASONING_EFFORT: none
       AGENTMEMORY_AUTO_COMPRESS: "true"
       AGENTMEMORY_SUPPRESS_COST_WARNING: "1"
+      AGENTMEMORY_SECRET: "$AGENTMEMORY_SECRET"
     volumes:
-      - "$DATA_DIR:/data"
+      - "$DATA_DIR:/data/home"
+      - "$III_DATA_DIR:/data/iii"
+      - ./iii-config.docker.yaml:/app/config.yaml:ro
     restart: unless-stopped
-    mem_limit: $WORKER_MEMORY
-    cpus: "$WORKER_CPUS"
+    mem_limit: $MEMORY
+    cpus: "$CPUS"
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-
 EOF
 
 chmod 600 "$INSTALL_DIR/.env" "$DATA_DIR/.agentmemory/.env"
@@ -288,28 +265,20 @@ if [ "$CONFIGURE_CADDY" != "0" ] && [ -n "$DOMAIN" ]; then
   if ! command -v caddy >/dev/null 2>&1; then
     echo "Caddy not found; skipped Caddy config." >&2
   else
-    CADDY_PASS="$(openssl rand -base64 24 | tr -d '\n')"
-    CADDY_HASH="$(caddy hash-password --plaintext "$CADDY_PASS")"
     cat > "$INSTALL_DIR/credentials.json" <<EOF
 {
   "domain": "https://$(printf '%s' "$DOMAIN" | json_escape)",
-  "username": "admin",
-  "password": "$(printf '%s' "$CADDY_PASS" | json_escape)",
+  "web_ui": "https://$(printf '%s' "$DOMAIN" | json_escape)",
+  "mcp_url": "https://$(printf '%s' "$DOMAIN" | json_escape)",
+  "agentmemory_secret": "$(printf '%s' "$AGENTMEMORY_SECRET" | json_escape)",
   "credential_path": "$INSTALL_DIR/credentials.json"
 }
 EOF
     chmod 600 "$INSTALL_DIR/credentials.json"
 
-    TMP_AUTH="$(mktemp)"
     TMP_SITE="$(mktemp)"
-    {
-      printf 'basic_auth {\n'
-      printf '\tadmin %s\n' "$CADDY_HASH"
-      printf '}\n'
-    } > "$TMP_AUTH"
     cat > "$TMP_SITE" <<EOF
 $DOMAIN {
-	import /etc/caddy/agentmemory-auth.caddy
 	encode zstd gzip
 
 	@agentmemory_api path /agentmemory/*
@@ -345,9 +314,8 @@ $DOMAIN {
 	}
 }
 EOF
-    sudo install -m 0644 -o root -g root "$TMP_AUTH" /etc/caddy/agentmemory-auth.caddy
     sudo install -m 0644 -o root -g root "$TMP_SITE" /etc/caddy/agentmemory.caddy
-    rm -f "$TMP_AUTH" "$TMP_SITE"
+    rm -f "$TMP_SITE"
     if ! grep -q '^import /etc/caddy/agentmemory.caddy$' /etc/caddy/Caddyfile; then
       sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.backup-agentmemory-$(date -u +%Y%m%dT%H%M%SZ)"
       printf '\nimport /etc/caddy/agentmemory.caddy\n' | sudo tee -a /etc/caddy/Caddyfile >/dev/null
@@ -366,3 +334,4 @@ echo "AgentMemory data dir: $DATA_DIR"
 echo "Rust iii-engine data dir: $III_DATA_DIR"
 echo "Compose: docker compose -f $INSTALL_DIR/docker-compose.yml ps"
 [ -z "$DOMAIN" ] || echo "URL: https://$DOMAIN"
+[ -z "$DOMAIN" ] || echo "MCP: AGENTMEMORY_URL=https://$DOMAIN AGENTMEMORY_SECRET=<see $INSTALL_DIR/credentials.json> npx -y @agentmemory/mcp"

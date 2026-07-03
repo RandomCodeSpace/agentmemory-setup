@@ -1,12 +1,12 @@
 # agentmemory-setup
 
-Docker setup for AgentMemory with Rust `iii-engine` (`iiidev/iii`), OpenAI-compatible LLM config, local embeddings, persistent storage, and CPU/RAM limits.
+Single-image Docker setup for AgentMemory plus Rust `iii-engine` (`iiidev/iii`), OpenAI-compatible LLM config, local embeddings, persistent storage, and CPU/RAM limits.
 
 ## Quick Start
 
 ```bash
 ./setup.sh \
-  --base-url https://ollama.com \
+  --base-url https://ollama.com/v1 \
   --api-key "$OLLAMA_API_KEY" \
   --model deepseek-v4-flash \
   --domain agent-mem.randomcodespace.dev
@@ -14,12 +14,14 @@ Docker setup for AgentMemory with Rust `iii-engine` (`iiidev/iii`), OpenAI-compa
 
 Defaults:
 
-- AgentMemory worker: `2g`, `2` CPUs
-- Rust iii-engine: `512m`, `1` CPU
-- Persistent Rust iii-engine state: `/opt/agentmemory/iii-data`
+- One container image contains AgentMemory and Rust `iii-engine`
+- Container limit: `3g`, `2.5` CPUs
+- Rust `iii-engine` is internal only; only AgentMemory REST/stream/viewer ports bind to host loopback
+- Persistent Rust `iii-engine` state: `/opt/agentmemory/iii-data`
 - Persistent AgentMemory home: `/opt/agentmemory/agentmemory-home`
-- Caddy auth username: `admin`
-- Caddy auth password path: `/opt/agentmemory/credentials.json`
+- Public web UI: `https://DOMAIN`
+- Public MCP/REST base URL: `https://DOMAIN`
+- Auth: AgentMemory bearer secret in `/opt/agentmemory/credentials.json`
 
 ## Options
 
@@ -31,13 +33,11 @@ Useful overrides:
 
 ```bash
 ./setup.sh \
-  --base-url https://ollama.com \
+  --base-url https://ollama.com/v1 \
   --api-key "$OLLAMA_API_KEY" \
   --model deepseek-v4-flash \
-  --worker-memory 2g \
-  --engine-memory 512m \
-  --worker-cpus 2 \
-  --engine-cpus 1 \
+  --memory 3g \
+  --cpus 2.5 \
   --data-dir /srv/agentmemory/home \
   --iii-data-dir /srv/agentmemory/iii
 ```
@@ -49,10 +49,16 @@ docker compose -f /opt/agentmemory/docker-compose.yml ps
 curl http://127.0.0.1:3111/agentmemory/livez
 ```
 
-With Caddy:
+With Caddy/domain:
 
 ```bash
-jq -r .password /opt/agentmemory/credentials.json
+jq -r .agentmemory_secret /opt/agentmemory/credentials.json
 ```
 
-Then open the configured domain and sign in as `admin`.
+Open the domain for the web UI. Use the same value as `AGENTMEMORY_SECRET` for MCP:
+
+```bash
+AGENTMEMORY_URL=https://agent-mem.randomcodespace.dev \
+AGENTMEMORY_SECRET="$(jq -r .agentmemory_secret /opt/agentmemory/credentials.json)" \
+npx -y @agentmemory/mcp
+```
