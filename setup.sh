@@ -262,11 +262,8 @@ EOF
 chmod 600 "$INSTALL_DIR/.env" "$DATA_DIR/.agentmemory/.env"
 chmod 644 "$INSTALL_DIR/Dockerfile" "$INSTALL_DIR/docker-compose.yml" "$INSTALL_DIR/iii-config.docker.yaml" "$DATA_DIR/.agentmemory/preferences.json"
 
-if [ "$CONFIGURE_CADDY" != "0" ] && [ -n "$DOMAIN" ]; then
-  if ! command -v caddy >/dev/null 2>&1; then
-    echo "Caddy not found; skipped Caddy config." >&2
-  else
-    cat > "$INSTALL_DIR/credentials.json" <<EOF
+if [ -n "$DOMAIN" ]; then
+  cat > "$INSTALL_DIR/credentials.json" <<EOF
 {
   "domain": "https://$(printf '%s' "$DOMAIN" | json_escape)",
   "web_ui": "https://$(printf '%s' "$DOMAIN" | json_escape)",
@@ -275,8 +272,13 @@ if [ "$CONFIGURE_CADDY" != "0" ] && [ -n "$DOMAIN" ]; then
   "credential_path": "$INSTALL_DIR/credentials.json"
 }
 EOF
-    chmod 600 "$INSTALL_DIR/credentials.json"
+  chmod 600 "$INSTALL_DIR/credentials.json"
+fi
 
+if [ "$CONFIGURE_CADDY" != "0" ] && [ -n "$DOMAIN" ]; then
+  if ! command -v caddy >/dev/null 2>&1; then
+    echo "Caddy not found; skipped Caddy config." >&2
+  else
     TMP_SITE="$(mktemp)"
     cat > "$TMP_SITE" <<EOF
 $DOMAIN {
