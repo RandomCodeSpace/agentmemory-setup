@@ -14,7 +14,7 @@ Single-image Docker setup for AgentMemory plus Rust `iii-engine` (`iiidev/iii`),
 
 Defaults:
 
-- Pulls `ghcr.io/randomcodespace/agentmemory-setup-public:latest`
+- Pulls `ghcr.io/randomcodespace/agentmemory-setup-public:latest` by default; version tag: `ghcr.io/randomcodespace/agentmemory-setup-public:0.9.27`
 - One container image contains AgentMemory and Rust `iii-engine`
 - Container limit: `3g`, `2.5` CPUs
 - Rust `iii-engine` is internal only; only AgentMemory REST/stream/viewer ports bind to host loopback

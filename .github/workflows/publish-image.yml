@@ -11,7 +11,8 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/randomcodespace/agentmemory-setup
+  IMAGE_NAME: ghcr.io/randomcodespace/agentmemory-setup-public
+  AGENTMEMORY_VERSION: 0.9.27
 
 jobs:
   publish:
@@ -29,6 +30,8 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ env.AGENTMEMORY_VERSION }},enable={{is_default_branch}}
+            type=raw,value=v${{ env.AGENTMEMORY_VERSION }},enable={{is_default_branch}}
             type=sha,prefix=
             type=ref,event=tag
       - uses: docker/build-push-action@v6
