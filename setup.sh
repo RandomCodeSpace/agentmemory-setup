@@ -98,11 +98,12 @@ if [ -z "$AGENTMEMORY_SECRET" ] && [ -n "$DOMAIN" ]; then
 fi
 
 mkdir_owned() {
-  if mkdir -p "$1" 2>/dev/null; then
-    return
+  if ! mkdir -p "$1" 2>/dev/null; then
+    sudo mkdir -p "$1"
   fi
-  sudo mkdir -p "$1"
-  sudo chown -R "$RUN_UID:$RUN_GID" "$1"
+  if [ "$(stat -c '%u:%g' "$1")" != "$RUN_UID:$RUN_GID" ]; then
+    sudo chown -R "$RUN_UID:$RUN_GID" "$1"
+  fi
 }
 
 json_escape() {
