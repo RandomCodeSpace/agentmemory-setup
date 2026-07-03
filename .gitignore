@@ -1,0 +1,5 @@
+.env
+credentials.json
+agentmemory-home/
+docker-compose.yml
+iii-config.docker.yaml
