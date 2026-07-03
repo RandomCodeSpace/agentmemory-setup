@@ -18,9 +18,10 @@ Options:
   --data-dir DIR        AgentMemory home path. Default: INSTALL_DIR/agentmemory-home
   --iii-data-dir DIR    Rust iii-engine state path. Default: INSTALL_DIR/iii-data
   --project-name NAME   Default: agentmemory
-  --image IMAGE         Default: local/agentmemory:0.9.27
+  --image IMAGE         Default: ghcr.io/randomcodespace/agentmemory-setup-public:latest
   --agentmemory-version VERSION  Default: 0.9.27
   --iii-version VERSION          Default: 0.11.2
+  --build-local                  Build local image instead of pulling --image
   --embedding-provider NAME      Default: local
   --memory LIMIT                 Default: 3g
   --cpus N                       Default: 2.5
@@ -44,8 +45,9 @@ III_DATA_DIR=""
 PROJECT_NAME="agentmemory"
 AGENTMEMORY_VERSION="0.9.27"
 III_VERSION="0.11.2"
-IMAGE="local/agentmemory:0.9.27"
+IMAGE="ghcr.io/randomcodespace/agentmemory-setup-public:latest"
 EMBEDDING_PROVIDER="local"
+BUILD_LOCAL="0"
 MEMORY="3g"
 CPUS="2.5"
 REST_PORT="3111"
@@ -67,8 +69,9 @@ while [ "$#" -gt 0 ]; do
     --iii-data-dir) III_DATA_DIR="${2:?}"; shift 2 ;;
     --project-name) PROJECT_NAME="${2:?}"; shift 2 ;;
     --image) IMAGE="${2:?}"; shift 2 ;;
-    --agentmemory-version) AGENTMEMORY_VERSION="${2:?}"; IMAGE="local/agentmemory:${2:?}"; shift 2 ;;
+    --agentmemory-version) AGENTMEMORY_VERSION="${2:?}"; IMAGE="local/agentmemory:${2:?}"; BUILD_LOCAL="1"; shift 2 ;;
     --iii-version) III_VERSION="${2:?}"; shift 2 ;;
+    --build-local) BUILD_LOCAL="1"; IMAGE="local/agentmemory:$AGENTMEMORY_VERSION"; shift ;;
     --embedding-provider) EMBEDDING_PROVIDER="${2:?}"; shift 2 ;;
     --memory) MEMORY="${2:?}"; shift 2 ;;
     --cpus) CPUS="${2:?}"; shift 2 ;;
@@ -210,16 +213,21 @@ workers:
         - node dist/index.mjs
 EOF
 
+BUILD_BLOCK=""
+if [ "$BUILD_LOCAL" = "1" ]; then
+  BUILD_BLOCK="    build:
+      context: .
+      args:
+        AGENTMEMORY_VERSION: $AGENTMEMORY_VERSION
+        III_VERSION: $III_VERSION"
+fi
+
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
 name: $PROJECT_NAME
 
 services:
   agentmemory:
-    build:
-      context: .
-      args:
-        AGENTMEMORY_VERSION: $AGENTMEMORY_VERSION
-        III_VERSION: $III_VERSION
+$BUILD_BLOCK
     image: $IMAGE
     user: "$RUN_UID:$RUN_GID"
     ports:
@@ -329,7 +337,12 @@ EOF
 fi
 
 if [ "$START_STACK" = "1" ]; then
-  docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --build
+  if [ "$BUILD_LOCAL" = "1" ]; then
+    docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --build
+  else
+    docker compose -f "$INSTALL_DIR/docker-compose.yml" pull agentmemory
+    docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --no-build
+  fi
 fi
 
 echo "Install dir: $INSTALL_DIR"

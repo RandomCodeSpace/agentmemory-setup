@@ -14,6 +14,7 @@ Single-image Docker setup for AgentMemory plus Rust `iii-engine` (`iiidev/iii`),
 
 Defaults:
 
+- Pulls `ghcr.io/randomcodespace/agentmemory-setup-public:latest`
 - One container image contains AgentMemory and Rust `iii-engine`
 - Container limit: `3g`, `2.5` CPUs
 - Rust `iii-engine` is internal only; only AgentMemory REST/stream/viewer ports bind to host loopback
@@ -41,6 +42,8 @@ Useful overrides:
   --data-dir /srv/agentmemory/home \
   --iii-data-dir /srv/agentmemory/iii
 ```
+
+Use `--build-local` only when changing the Dockerfile or AgentMemory/iii versions.
 
 ## Verify
 
